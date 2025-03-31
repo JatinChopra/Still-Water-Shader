@@ -63,6 +63,23 @@ renderTarget.depthTexture = new THREE.DepthTexture(w, h);
 renderTarget.depthTexture.type = THREE.FloatType;
 renderTarget.depthTexture.format = THREE.DepthFormat;
 
+const reflectionRenderTarget = new THREE.WebGLRenderTarget(w, h);
+const reflectionCamera = new THREE.PerspectiveCamera(75, w / h, 0.01, 1000);
+
+function calculateReflectionCameraPos() {
+  reflectionCamera.position.copy(camera.position.clone());
+  reflectionCamera.position.y *= -1;
+  reflectionCamera.up.set(0, -1, 0);
+
+  const cameraForward = new THREE.Vector3();
+  camera.getWorldDirection(cameraForward);
+
+  const target = camera.position.clone().add(cameraForward);
+  target.y *= -1;
+
+  reflectionCamera.lookAt(target);
+}
+
 const waterUniformData = {
   uTime: {
     value: clock.getElapsedTime(),
@@ -98,6 +115,9 @@ const waterUniformData = {
   uColor2: {
     value: new THREE.Color(0x0000ff),
   },
+  uReflectionTexture: {
+    value: reflectionRenderTarget.texture,
+  },
 };
 
 const waterPlaneGeo = new THREE.PlaneGeometry(20, 20);
@@ -132,7 +152,8 @@ uniform float uMaxDepth;
 uniform vec3 uColor1;
 uniform vec3 uColor2;
 
-varying vec4 vClipPos;
+uniform sampler2D uReflectionTexture;
+
 
   ${perlinNoise}
 
@@ -140,13 +161,16 @@ varying vec4 vClipPos;
 
     // scene below the water surface
     vec2 sceneCoord = gl_FragCoord.xy / uWindowSize;
+    vec2 reflectionCoord = vec2(1.0 - sceneCoord.x , sceneCoord.y);
 
     float offsetX = cnoise(vec2(sceneCoord.x)*uDistortFreq+uTime)*uDistortAmp;
     float offsetY = cnoise(vec2(sceneCoord.y)*uDistortFreq+uTime)*uDistortAmp;
 
     vec2 distortedCoord = vec2(sceneCoord.x+offsetX, sceneCoord.y+offsetY);
+    vec2 distortedReflectionCoord = vec2(reflectionCoord.x+offsetX, reflectionCoord.y+offsetY);
 
     vec4 sceneBeneath = texture2D(uSceneTexture,distortedCoord);
+    vec4 reflection = texture2D(uReflectionTexture,distortedReflectionCoord);
 
     float waterLevel = 0.0;
     float depth = texture2D(uDepthTexture,sceneCoord).r;
@@ -167,7 +191,8 @@ varying vec4 vClipPos;
     //color = vec3(heightDiff);
     //color = depthColor;
     //color = mix(sceneBeneath.rgb + uColor1*(1.0 - heightDiff) , sceneBeneath.rgb*0.2 + uColor2,1.0 - heightDiff);
-    color = mix(sceneBeneath.rgb * 0.8 + uColor1 , sceneBeneath.rgb*0.2 + uColor2,1.0 - heightDiff);
+    color = reflection.rgb;
+    //color = mix(sceneBeneath.rgb * 0.8 + uColor1 , sceneBeneath.rgb*0.2 + uColor2,1.0 - heightDiff);
 
 
     gl_FragColor = vec4(color,1.0);
@@ -221,12 +246,14 @@ function updateRendererSize() {
 
     // resize render target
     renderTarget.setSize(currWidth, currHeight);
+    reflectionRenderTarget.setSize(currWidth, currHeight);
 
   }
 
 
 }
 
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 function animate() {
   orbCtrls.update();
   stats.update();
@@ -236,11 +263,21 @@ function animate() {
   const time = clock.getElapsedTime();
 
   updateWaterUniforms(time);
+  calculateReflectionCameraPos();
 
   water.visible = false;
   re.setRenderTarget(renderTarget);
   re.render(scene, camera);
 
+  re.clippingPlanes = [clipPlane];
+  poolBig.visible = false;
+
+  re.setRenderTarget(null);
+  re.setRenderTarget(reflectionRenderTarget);
+  re.render(scene, reflectionCamera);
+
+  re.clippingPlanes = [];
+  poolBig.visible = true;
   water.visible = true;
   re.setRenderTarget(null);
   re.render(scene, camera);
