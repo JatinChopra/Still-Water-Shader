@@ -17,14 +17,16 @@ const cnvs = document.querySelector("#c") as HTMLCanvasElement;
 const w = cnvs.clientWidth;
 const h = cnvs.clientHeight;
 
+const pixelRatio = window.devicePixelRatio;
 const re = new THREE.WebGLRenderer({ canvas: cnvs, antialias: true });
-re.setPixelRatio(window.devicePixelRatio);
+re.setPixelRatio(pixelRatio);
 re.setSize(w, h, false);
 
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, w / h, 0.01, 1000);
 camera.position.set(0, 4, -10);
+
 
 
 new RGBELoader().load('/env_4k.hdr', (envMap) => {
@@ -76,12 +78,12 @@ const orbCtrls = new OrbitControls(camera, cnvs);
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
-const renderTarget = new THREE.WebGLRenderTarget(w, h);
-renderTarget.depthTexture = new THREE.DepthTexture(w, h);
+const renderTarget = new THREE.WebGLRenderTarget(w * pixelRatio, h * pixelRatio);
+renderTarget.depthTexture = new THREE.DepthTexture(w * pixelRatio, h * pixelRatio);
 renderTarget.depthTexture.type = THREE.FloatType;
 renderTarget.depthTexture.format = THREE.DepthFormat;
 
-const reflectionRenderTarget = new THREE.WebGLRenderTarget(w, h);
+const reflectionRenderTarget = new THREE.WebGLRenderTarget(w * pixelRatio, h * pixelRatio);
 const reflectionCamera = new THREE.PerspectiveCamera(75, w / h, 0.01, 1000);
 
 function calculateReflectionCameraPos() {
@@ -103,7 +105,7 @@ const waterUniformData = {
     value: clock.getElapsedTime(),
   },
   uWindowSize: {
-    value: new THREE.Vector2(cnvs.clientWidth, cnvs.clientHeight)
+    value: new THREE.Vector2(cnvs.clientWidth * pixelRatio, cnvs.clientHeight * pixelRatio)
   },
   uSceneTexture: {
     value: renderTarget.texture
@@ -207,8 +209,8 @@ reflectionFolder.add(waterUniformData.uFresnelFactor, "value", 0, 5, 0.001).name
 function updateWaterUniforms(time: number) {
   waterUniformData.uTime.value = time;
 
-  waterUniformData.uWindowSize.value.x = cnvs.clientWidth;
-  waterUniformData.uWindowSize.value.y = cnvs.clientHeight;
+  waterUniformData.uWindowSize.value.x = cnvs.clientWidth * pixelRatio;
+  waterUniformData.uWindowSize.value.y = cnvs.clientHeight * pixelRatio;
 
   waterUniformData.uSceneTexture.value = renderTarget.texture;
 }
@@ -219,7 +221,7 @@ function updateRendererSize() {
   const currHeight = cnvs.clientHeight;
 
   if (currWidth != w || currHeight != h) {
-    re.setSize(currWidth, currHeight, false);
+    re.setSize(currWidth * pixelRatio, currHeight * pixelRatio, false);
     camera.aspect = currWidth / currHeight;
     reflectionCamera.aspect = camera.aspect;
 
@@ -228,8 +230,8 @@ function updateRendererSize() {
 
 
     // resize render target
-    renderTarget.setSize(currWidth, currHeight);
-    reflectionRenderTarget.setSize(currWidth, currHeight);
+    renderTarget.setSize(currWidth * pixelRatio, currHeight * pixelRatio);
+    reflectionRenderTarget.setSize(currWidth * pixelRatio, currHeight * pixelRatio);
 
 
   }

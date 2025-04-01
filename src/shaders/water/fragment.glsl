@@ -79,8 +79,8 @@ varying vec2 vUv;
     vec3 lightPos = normalize(vec3(1.0,18.0,-1.0));
     vec3 reflected = normalize(reflect(lightPos,mixedNormals));
     vec3 specularColor = vec3(1.0);
-    
-    float specular = pow(dot(viewDir,reflected),78.0) * (1.0 - fresnel);
+    float specularDot = max(0.0, dot(viewDir,reflected));
+    float specular = pow(specularDot,78.0) * (1.0 - fresnel);
 
 
     vec3 color = vec3(1.0);
