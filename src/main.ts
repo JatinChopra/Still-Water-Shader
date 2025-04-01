@@ -36,17 +36,27 @@ const foamTexture = textureLoader.load('/foamNoise.png');
 foamTexture.wrapS = THREE.RepeatWrapping;
 foamTexture.wrapT = THREE.RepeatWrapping;
 
+const normalTexture = textureLoader.load('/normal.jpeg');
+normalTexture.wrapS = THREE.RepeatWrapping;
+normalTexture.wrapT = THREE.RepeatWrapping;
 
 let poolBig = new THREE.Mesh();
 let poolSmall = new THREE.Mesh();
 //@ts-ignore
 let suzanne = new THREE.Mesh();
+let meshMaterial = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  metalness: 0.8,
+  roughness: 0
+});
 
 new GLTFLoader().load('/pools.glb', (model) => {
   model.scene.rotateY(Math.PI);
   model.scene.traverse((obj) => {
-    if (obj.name == "suzanne")
+    if (obj.name == "suzanne") {
       suzanne = obj as THREE.Mesh;
+      suzanne.material = meshMaterial;
+    }
     if (obj.name == "poolBig")
       poolBig = obj as THREE.Mesh;
     if (obj.name == "poolSmall")
@@ -127,7 +137,7 @@ const waterUniformData = {
     value: true,
   },
   uFresnelFactor: {
-    value: 0.8
+    value: 0.5
   },
   uFoamDepth: {
     value: 1.0
@@ -140,6 +150,12 @@ const waterUniformData = {
   },
   uSolidFoamColor: {
     value: true,
+  },
+  uNormalTexture: {
+    value: normalTexture,
+  },
+  uSpecularReflection: {
+    value: true
   }
 
 };
@@ -188,6 +204,9 @@ uniform sampler2D uFoamTexture;
 uniform vec3 uFoamColor;
 uniform bool uSolidFoamColor;
 
+uniform sampler2D uNormalTexture;
+uniform bool uSpecularReflection;
+
 varying vec2 vUv;
 
 
@@ -199,8 +218,8 @@ varying vec2 vUv;
     vec2 sceneCoord = gl_FragCoord.xy / uWindowSize;
     vec2 reflectionCoord = vec2(1.0 - sceneCoord.x , sceneCoord.y);
 
-    float offsetX = cnoise(vec2(sceneCoord.x)*uDistortFreq+uTime)*uDistortAmp;
-    float offsetY = cnoise(vec2(sceneCoord.y)*uDistortFreq+uTime)*uDistortAmp;
+    float offsetX = cnoise(sceneCoord*uDistortFreq+uTime)*uDistortAmp;
+    float offsetY = cnoise(sceneCoord*uDistortFreq+uTime)*uDistortAmp;
 
     vec2 distortedCoord = vec2(sceneCoord.x+offsetX, sceneCoord.y+offsetY);
     vec2 distortedReflectionCoord = vec2(reflectionCoord.x+offsetX, reflectionCoord.y+offsetY);
@@ -228,8 +247,21 @@ varying vec2 vUv;
     vec3 normal = vec3(0.0,1.0,0.0);
     vec3 viewDir = normalize(cameraPosition - worldPos.xyz);
     float fresnel = pow(dot(viewDir,normal),uFresnelFactor);
+
+    // for specular reflection
+	vec2 normalUV1 = vec2(vUv.x*1.0+offsetX+0.5 , vUv.y*1.0+offsetY+0.2) * 2.0 -1.0;
+	vec2 normalUV2 = vec2(vUv.x*1.0-offsetX+0.1 , vUv.y*1.0-offsetY+0.8) * 2.0 - 1.0;
+    vec3 normalTxt1 = texture2D(uNormalTexture,normalUV1).rgb;
+    vec3 normalTxt2 = texture2D(uNormalTexture,normalUV2).rgb;
+
+    vec3 mixedNormals = mix(normalTxt1 , normalTxt2,0.8);
+
+    vec3 lightPos = normalize(vec3(1.0,18.0,-1.0));
+    vec3 reflected = normalize(reflect(lightPos,mixedNormals));
+    vec3 specularColor = vec3(1.0);
     
-     
+    float specular = pow(dot(viewDir,reflected),78.0) * (1.0 - fresnel);
+
 
     vec3 color = vec3(1.0);
 
@@ -241,6 +273,10 @@ varying vec2 vUv;
     //color = vec3(fresnel);
     //color = vec3(foam);
     color = mix(sceneBeneath.rgb * 0.8 + uColor1 , sceneBeneath.rgb*0.2 + uColor2,1.0 - heightDiff);
+
+    if(uSpecularReflection){
+      color = color + (specular * specularColor);
+    }
 
     if(uPlanarReflection){
       color = mix(color,reflection.rgb*1.2,1.0 - fresnel);
@@ -264,14 +300,12 @@ scene.add(water);
 
 const gui = new GUI();
 
-const visibilityFolder = gui.addFolder('Mesh Visibility');
+const visibilityFolder = gui.addFolder('Mesh');
 
+visibilityFolder.addColor(meshMaterial, "color");
 visibilityFolder.add(poolBig, 'visible').onChange((val: boolean) => {
   poolBig.visible = val;
 }).name("Pool Big");
-visibilityFolder.add(poolSmall, 'visible').onChange((val: boolean) => {
-  poolSmall.visible = val;
-}).name("Pool Small").setValue(false);
 
 const distortionFolder = gui.addFolder("Surface Distortion");
 distortionFolder.add(waterUniformData.uDistortFreq, "value", 0, 50, 0.1).name('Frequency');
@@ -286,6 +320,7 @@ depthFolder.addColor(waterUniformData.uColor2, "value").name("Color 2");
 
 const reflectionFolder = gui.addFolder("Reflection");
 reflectionFolder.add(waterUniformData.uPlanarReflection, "value").name("Planar Reflection");
+reflectionFolder.add(waterUniformData.uSpecularReflection, "value").name("Specular Reflection");
 reflectionFolder.add(waterUniformData.uFresnelFactor, "value", 0, 5, 0.001).name("Fresnel strength");
 
 function updateWaterUniforms(time: number) {
