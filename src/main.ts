@@ -6,6 +6,7 @@ import Stats from 'three/examples/jsm/libs/stats.module.js';
 import { GLTFLoader, OrbitControls, RGBELoader } from 'three/examples/jsm/Addons.js';
 
 import perlinNoise from '/src/shaders/perlinNoise.glsl?raw';
+import { reflect } from 'three/tsl';
 
 const clock = new THREE.Clock();
 
@@ -118,20 +119,24 @@ const waterUniformData = {
   uReflectionTexture: {
     value: reflectionRenderTarget.texture,
   },
+  uPlanarReflection: {
+    value: true,
+  },
+  uFresnelFactor: {
+    value: 1.0
+  },
 };
 
 const waterPlaneGeo = new THREE.PlaneGeometry(20, 20);
 const waterMaterial = new THREE.ShaderMaterial();
 waterMaterial.uniforms = waterUniformData;
 waterMaterial.vertexShader = `
-varying vec4 vClipPos;
   void main(){
     vec3 localPos = position;
     vec4 worldPos = modelMatrix * vec4(localPos,1.0);
     vec4 viewPos = viewMatrix * worldPos;
     vec4 clipPos = projectionMatrix * viewPos;
 
-    vClipPos = clipPos;
     gl_Position = clipPos;
   }
 `;
@@ -153,6 +158,8 @@ uniform vec3 uColor1;
 uniform vec3 uColor2;
 
 uniform sampler2D uReflectionTexture;
+uniform bool uPlanarReflection;
+uniform float uFresnelFactor;
 
 
   ${perlinNoise}
@@ -179,10 +186,15 @@ uniform sampler2D uReflectionTexture;
     vec4 viewPos = uInverseProjectionMatrix * normalizedCoords;
     vec4 worldPos = uWorldMatrix * viewPos;
     viewPos /= viewPos.w;
-    worldPos /= worldPos.w;
+    worldPos /= worldPos.w; 
     
     float heightDiff = 1.0 - clamp((waterLevel - worldPos.y)/uMaxDepth,0.0,1.0);
     vec3 depthColor = mix(uColor1,uColor2,heightDiff);
+
+    vec3 normal = vec3(0.0,1.0,0.0);
+    vec3 viewDir = normalize(cameraPosition - worldPos.xyz);
+    float fresnel = pow(dot(viewDir,normal),uFresnelFactor);
+    
      
 
     vec3 color = vec3(1.0);
@@ -191,8 +203,13 @@ uniform sampler2D uReflectionTexture;
     //color = vec3(heightDiff);
     //color = depthColor;
     //color = mix(sceneBeneath.rgb + uColor1*(1.0 - heightDiff) , sceneBeneath.rgb*0.2 + uColor2,1.0 - heightDiff);
-    color = reflection.rgb;
-    //color = mix(sceneBeneath.rgb * 0.8 + uColor1 , sceneBeneath.rgb*0.2 + uColor2,1.0 - heightDiff);
+    //color = reflection.rgb;
+    //color = vec3(fresnel);
+    color = mix(sceneBeneath.rgb * 0.8 + uColor1 , sceneBeneath.rgb*0.2 + uColor2,1.0 - heightDiff);
+
+    if(uPlanarReflection){
+    color = mix(color,reflection.rgb*1.2,1.0 - fresnel);
+    }
 
 
     gl_FragColor = vec4(color,1.0);
@@ -224,6 +241,10 @@ depthFolder.add(waterUniformData.uMaxDepth, "value", 0, 20, 0.01).name('Max Dept
 depthFolder.addColor(waterUniformData.uColor1, "value").name("Color 1");
 depthFolder.addColor(waterUniformData.uColor2, "value").name("Color 2");
 
+const reflectionFolder = gui.addFolder("Reflection");
+reflectionFolder.add(waterUniformData.uPlanarReflection, "value").name("Planar Reflection");
+reflectionFolder.add(waterUniformData.uFresnelFactor, "value", 0, 5, 0.001).name("Fresnel strength");
+
 function updateWaterUniforms(time: number) {
   waterUniformData.uTime.value = time;
 
@@ -241,16 +262,18 @@ function updateRendererSize() {
   if (currWidth != w || currHeight != h) {
     re.setSize(currWidth, currHeight, false);
     camera.aspect = currWidth / currHeight;
+    reflectionCamera.aspect = camera.aspect;
+
     camera.updateProjectionMatrix();
+    reflectionCamera.updateProjectionMatrix();
 
 
     // resize render target
     renderTarget.setSize(currWidth, currHeight);
     reflectionRenderTarget.setSize(currWidth, currHeight);
 
+
   }
-
-
 }
 
 const clipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -258,10 +281,9 @@ function animate() {
   orbCtrls.update();
   stats.update();
 
-  updateRendererSize();
-
   const time = clock.getElapsedTime();
 
+  updateRendererSize();
   updateWaterUniforms(time);
   calculateReflectionCameraPos();
 
